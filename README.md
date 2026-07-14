@@ -1,68 +1,76 @@
-# my-enterprise-spring-proj-one
-Mono repo for my learning
+# Enterprise Microservice Platform
 
-## Gateway Service
+A local-first e-commerce platform for learning Java, Spring Boot, distributed systems, event-driven design, security, observability, and delivery automation.
 
-The Gateway Service acts as the single entry point for all client requests to the platform. It is responsible for routing incoming API requests to the appropriate microservices while providing cross-cutting capabilities such as authentication, authorization, request logging, rate limiting, distributed tracing, and load balancing. By centralizing these concerns, the gateway simplifies client interactions and shields internal services from direct external access, improving both security and maintainability.
+The project deliberately uses independently deployable Spring services. It is a learning reference, not a production storefront or a real-money payment system.
 
-## Discovery Service
+## Start Here
 
-The Discovery Service provides dynamic service registration and discovery within the microservice ecosystem. Each service automatically registers itself on startup and periodically sends heartbeat information to indicate its availability. Other services use the discovery registry to locate instances without relying on hardcoded IP addresses or hostnames, enabling seamless scaling, fault tolerance, and dynamic deployment in cloud and Kubernetes environments.
+Read these documents before implementing a service:
 
-## Customer Service
+1. [Requirements specification](docs/requirements.md)
+2. [Architecture](docs/architecture.md)
+3. [Agent instructions](AGENTS.md)
+4. The relevant API, event, database, security, observability, and deployment guides in [`docs/`](docs/)
 
-The Customer Service manages all customer-related information, including personal details, contact information, delivery addresses, preferences, and loyalty data. It serves as the authoritative source of customer information for the platform while exposing REST APIs for customer management. This service owns its database and ensures customer data remains isolated from other business domains.
+`docs/requirements.md` is the source of truth for platform behavior. The other guides describe how to implement that behavior.
 
-## Product Service
+## Local Reference Environment
 
-The Product Service maintains the product catalog and provides detailed information about products, including descriptions, pricing, categories, specifications, availability, and images. Since product information is frequently accessed, this service can leverage caching mechanisms such as Redis to improve performance and reduce database load. It acts as the central source of truth for all product-related information.
+Everything runs locally:
 
-## Order Service
+- Docker Compose first.
+- PostgreSQL with one database per business service.
+- Kafka, Redis, and Keycloak.
+- MailHog/Mailpit plus deterministic payment and courier adapters.
+- Prometheus, Grafana, Loki, Tempo, and an OpenTelemetry Collector.
+- Later: kind or Minikube, a local registry, Helm, and ArgoCD.
 
-The Order Service orchestrates the complete order lifecycle, from order creation to completion or cancellation. It coordinates interactions with inventory, payment, shipping, and notification services while maintaining the current status of every order. As the core business service of the platform, it ensures that customer orders are processed reliably through a combination of synchronous APIs and asynchronous event-driven communication.
+No cloud account, real payment provider, real courier, or externally hosted runtime is required.
 
-## Inventory Service
+## Services
 
-The Inventory Service manages product stock across warehouses and ensures inventory consistency throughout the order lifecycle. It reserves stock during order placement, releases stock for failed or cancelled orders, and updates inventory after successful purchases. By isolating inventory management into its own service, the platform can independently scale and optimize stock operations without impacting other business functions.
+| Component | Responsibility |
+|---|---|
+| Gateway | External API entry point, JWT validation, routing, rate limiting, and trace propagation. |
+| Discovery | Local service registry used by Spring services. |
+| Keycloak | OAuth2/OIDC identity provider; owns login credentials and tokens. |
+| Customer | Customer profiles, addresses, and preferences linked to Keycloak subjects. |
+| Product | Product catalogue, pricing, categories, and an event-maintained availability read model. |
+| Order | Order lifecycle and event-driven Saga coordinator. |
+| Inventory | Warehouse stock and reservations. |
+| Payment | Sandbox payment capture and refunds. |
+| Shipping | Sandbox courier assignment, tracking, and delivery lifecycle. |
+| Notification | Event-driven email delivery and notification history. |
+| Analytics | Event-fed operational aggregates. |
 
-## Payment Service
+## Order Flow
 
-The Payment Service handles payment processing for customer orders by integrating with external payment providers. It manages payment transactions, records transaction status, and publishes payment events that trigger downstream business processes. The service stores transaction metadata while ensuring that sensitive payment information is never persisted within the platform, following industry security best practices.
-
-## Shipping Service
-
-The Shipping Service is responsible for managing shipment creation, courier assignment, package tracking, and delivery status updates. Once an order has been successfully paid, the service initiates the shipping process and maintains the shipment lifecycle until delivery. It provides tracking information that can be consumed by both customers and internal business services.
-
-## Notification Service
-
-The Notification Service provides centralized communication capabilities for the platform by delivering emails, SMS messages, push notifications, or other communication channels. Instead of being tightly coupled with business services, it subscribes to business events such as order creation, payment confirmation, or shipment updates, allowing notifications to be processed asynchronously and independently.
-
-## Analytics Service
-
-The Analytics Service collects and processes business events generated across the platform to produce operational dashboards, reports, and analytical insights. By consuming events from Kafka, it enables real-time business intelligence without impacting transactional workloads. The processed data can later be integrated with modern analytics platforms such as Databricks for advanced reporting, machine learning, and predictive analytics.
-
-
-## Overall Architecture
-
+```text
+POST /api/v1/orders
+  -> order.created
+  -> inventory.reserved
+  -> order.confirmed
+  -> payment.completed
+  -> order.paid
+  -> shipment.created
+  -> shipment.delivered
+  -> order.completed
 ```
 
-                    Web / Mobile App
-                           │
-                           ▼
-                  Spring Cloud Gateway
-                           │
-         ┌─────────────────┼──────────────────┐
-         ▼                 ▼                  ▼
-   Customer Service   Product Service    Order Service
-                                               │
-                         ┌─────────────────────┴─────────────────────┐
-                         ▼                     ▼                     ▼
-                Inventory Service     Payment Service      Shipping Service
-                         │                     │                     │
-                         └──────────────Kafka Events─────────────────┘
-                                              │
-                                 ┌────────────┴────────────┐
-                                 ▼                         ▼
-                      Notification Service      Analytics Service
+Order Service coordinates the lifecycle. Every event is delivered at least once, so consumers are idempotent and tolerate out-of-order delivery. See [requirements.md](docs/requirements.md) for compensation and cancellation flows.
 
-```
+## Suggested Learning Path
+
+1. Platform skeleton: Discovery, Gateway, Keycloak, and one service through the gateway.
+2. Catalog and customer profile management.
+3. Order and inventory reservation with outbox and idempotency.
+4. Payment, shipping, compensation, notification, and analytics.
+5. Observability, resilience, DLQs, failure injection, and load tests.
+6. Local Kubernetes, Helm, and ArgoCD.
+
+See the milestone table in [requirements.md](docs/requirements.md).
+
+## Status
+
+This repository currently contains the platform contracts and implementation standards. Service code and local runtime artifacts are added incrementally according to the milestones.

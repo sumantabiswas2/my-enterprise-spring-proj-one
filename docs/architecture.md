@@ -1,796 +1,193 @@
 # Enterprise Microservice Platform Architecture
 
 **Version:** 1.0  
-**Project Type:** Cloud-Native Microservices Platform  
+**Project Type:** Local-First Cloud-Native Microservices Learning Platform
 **Language:** Java 21  
 **Framework:** Spring Boot 4.1.0
+---
+
+# 1. Purpose and Source of Truth
+
+This document explains the platform structure and implementation boundaries. `docs/requirements.md` is authoritative for business behavior, event ownership, and acceptance criteria. `AGENTS.md` is authoritative for repository workflow and coding rules.
+
+The project demonstrates independently deployable services, local transactions, event-driven workflows, security, observability, and local delivery automation. It does not require a cloud account, real payment provider, or real courier.
 
 ---
 
-# 1. Project Overview
+# 2. Platform Components
 
-## Purpose
+| Component | Type | Responsibility | Data ownership |
+|---|---|---|---|
+| Gateway Service | Infrastructure | External entry point, routing, JWT validation, rate limiting, trace propagation. | Stateless. |
+| Discovery Service | Infrastructure | Eureka registration and discovery for Spring services. | Stateless registry state. |
+| Keycloak | Platform component | OAuth2/OIDC authorization server, login, credentials, and token issuance. | Keycloak identity database. |
+| Customer Service | Business service | Customer profiles, addresses, and notification preferences. | `customer_db`. |
+| Product Service | Business service | Catalogue, price, categories, and local availability read model. | `product_db`, Redis cache. |
+| Order Service | Business service | Order lifecycle and event-driven Saga coordination. | `order_db`. |
+| Inventory Service | Business service | Warehouse stock, reservations, releases, and availability events. | `inventory_db`. |
+| Payment Service | Business service | Sandbox payment capture, reconciliation, and refunds. | `payment_db`. |
+| Shipping Service | Business service | Sandbox courier assignment, tracking, and delivery events. | `shipping_db`. |
+| Notification Service | Business service | Event-driven email delivery and notification history. | `notification_db`. |
+| Analytics Service | Business service | Event-fed operational aggregates and admin reports. | `analytics_db`. |
 
-The Enterprise Microservice Platform is a cloud-native e-commerce application designed to demonstrate enterprise software development practices using the Spring ecosystem.
-
-The project showcases how independent business capabilities can be implemented as loosely coupled microservices while maintaining scalability, resilience, observability, and maintainability.
-
-This repository is intended for learning modern enterprise architecture, cloud-native application development, DevOps, and distributed systems.
-
----
-
-# 2. Business Workflow
-
-The primary business flow of the application is:
-
-```
-
-Customer
-
-↓
-
-Browse Products
-
-↓
-
-View Product Details
-
-↓
-
-Place Order
-
-↓
-
-Inventory Validation
-
-↓
-
-Payment Processing
-
-↓
-
-Shipping Initiated
-
-↓
-
-Customer Notification
-
-↓
-
-Analytics Updated
-
-```
+Gateway and Discovery do not own PostgreSQL business databases. Every business service owns one PostgreSQL database and never reads another service's database.
 
 ---
 
-# 3. High Level Architecture
+# 3. High-Level Topology
 
-```
-
-                    Web / Mobile App
-                           │
-                           ▼
-                  Spring Cloud Gateway
-                           │
-         ┌─────────────────┼──────────────────┐
-         ▼                 ▼                  ▼
-   Customer Service   Product Service    Order Service
-                                               │
-                         ┌─────────────────────┴─────────────────────┐
-                         ▼                     ▼                     ▼
-                Inventory Service     Payment Service      Shipping Service
-                         │                     │                     │
-                         └──────────────Kafka Events─────────────────┘
-                                              │
-                                 ┌────────────┴────────────┐
-                                 ▼                         ▼
-                      Notification Service      Analytics Service
-
-```
-
----
-
-# 4. Architectural Style
-
-The application follows the following architectural patterns:
-
-- Microservices Architecture
-- Domain Driven Design (DDD)
-- Event Driven Architecture
-- API Gateway Pattern
-- Database per Service Pattern
-- Service Discovery Pattern
-- Circuit Breaker Pattern
-- Externalized Configuration
-- Cloud Native Deployment
-
----
-
-# 5. Service Responsibilities
-
-## API Gateway
-
-Responsibilities
-
-- Single entry point
-- Authentication
-- Authorization
-- Request routing
-- Rate limiting
-- Request logging
-- Distributed tracing propagation
-- SSL termination
-
-Never
-
-- Business logic
-- Database access
-
----
-
-## Customer Service
-
-Responsibilities
-
-- Customer Registration
-- Login
-- Customer Profile
-- Address Management
-- Customer Preferences
-
-Database
-
-customer_db
-
-Owns
-
-- Customer
-- Address
-- Profile
-
----
-
-## Product Service
-
-Responsibilities
-
-- Product Catalog
-- Categories
-- Product Search
-- Product Details
-- Pricing
-- Product Images
-
-Database
-
-product_db
-
-Owns
-
-- Product
-- Category
-- Price
-
----
-
-## Order Service
-
-Responsibilities
-
-- Create Order
-- Cancel Order
-- Update Order Status
-- Order History
-
-Database
-
-order_db
-
-Publishes
-
-- OrderCreated
-- OrderCancelled
-
-Consumes
-
-- InventoryReserved
-- PaymentCompleted
-- PaymentFailed
-
----
-
-## Inventory Service
-
-Responsibilities
-
-- Stock Management
-- Warehouse Inventory
-- Inventory Reservation
-- Stock Validation
-
-Database
-
-inventory_db
-
-Publishes
-
-- InventoryReserved
-- InventoryReleased
-
----
-
-## Payment Service
-
-Responsibilities
-
-- Payment Processing
-- Refund
-- Invoice
-- Payment Validation
-
-Database
-
-payment_db
-
-Publishes
-
-- PaymentCompleted
-- PaymentFailed
-
----
-
-## Shipping Service
-
-Responsibilities
-
-- Shipment Creation
-- Shipment Tracking
-- Delivery Updates
-
-Database
-
-shipping_db
-
-Publishes
-
-- ShipmentCreated
-- ShipmentDelivered
-
----
-
-## Notification Service
-
-Responsibilities
-
-- Email
-- SMS
-- Push Notification
-
-Database
-
-notification_db
-
-Consumes Kafka events only.
-
----
-
-## Analytics Service
-
-Responsibilities
-
-- Sales Reports
-- Business Metrics
-- Dashboard Data
-- Order Analytics
-- Revenue Analytics
-
-Database
-
-analytics_db
-
-Consumes Kafka events only.
-
----
-
-# 6. Service Communication
-
-## Synchronous Communication
-
-Protocol
-
-- REST
-- HTTP
-
-Technology
-
-- OpenFeign
-
-Communication Flow
-
-```
-
-Gateway
-
-↓
-
-Order Service
-
-↓
-
-Inventory Service
-
-↓
-
-Payment Service
-
-```
-
-Used for
-
-- Inventory Validation
-- Payment Authorization
-- Customer Information
-
----
-
-## Asynchronous Communication
-
-Technology
-
-Kafka
-
-Communication
-
-```
-
-OrderCreated
-
-↓
-
-Kafka
-
-↓
-
-Inventory Service
-
-Shipping Service
-
-Notification Service
-
-Analytics Service
-
-```
-
-Used for
-
-- Notifications
-- Analytics
-- Shipment Creation
-- Event Processing
-
----
-
-# 7. Database Strategy
-
-Each microservice owns its own database.
-
-No service is allowed to access another service's database.
-
-Correct
-
-```
-
-Order Service
-
-↓
-
-Inventory REST API
-
-```
-
-Incorrect
-
-```
-
-Order Service
-
-↓
-
-Inventory Database
-
-```
-
-This principle ensures service independence and loose coupling.
-
----
-
-# 8. Event Driven Architecture
-
-## OrderCreated
-
-Publisher
-
-- Order Service
-
-Consumers
-
-- Inventory Service
-- Shipping Service
-- Notification Service
-- Analytics Service
-
----
-
-## PaymentCompleted
-
-Publisher
-
-- Payment Service
-
-Consumers
-
-- Order Service
-- Shipping Service
-- Analytics Service
-
----
-
-## PaymentFailed
-
-Publisher
-
-- Payment Service
-
-Consumers
-
-- Order Service
-- Notification Service
-
----
-
-## InventoryReserved
-
-Publisher
-
-- Inventory Service
-
-Consumers
-
-- Order Service
-
----
-
-## ShipmentCreated
-
-Publisher
-
-- Shipping Service
-
-Consumers
-
-- Notification Service
-- Analytics Service
-
----
-
-## ShipmentDelivered
-
-Publisher
-
-- Shipping Service
-
-Consumers
-
-- Notification Service
-- Analytics Service
-
----
-
-# 9. API Gateway
-
-Technology
-
-Spring Cloud Gateway
-
-Responsibilities
-
-- Route requests
-- JWT Validation
-- Authentication
-- Authorization
-- Load Balancing
-- Logging
-- Trace Propagation
-
-Gateway must remain stateless.
-
----
-
-# 10. Service Discovery
-
-Technology
-
-Spring Cloud Netflix Eureka
-
-Every service registers itself with Eureka.
-
-Gateway discovers services dynamically.
-
-No service should hardcode IP addresses.
-
----
-
-# 11. Security
-
-Authentication
-
-OAuth2
-
-Authorization
-
-JWT
-
-Implementation
-
-Spring Security
-
-Future Enhancement
-
-Keycloak
-
-Security Flow
-
-```
-
+```text
 Client
-
-↓
-
-Gateway
-
-↓
-
-JWT Validation
-
-↓
-
-Forward Request
-
-↓
-
-Microservice
-
+  |
+  v
+Gateway -----> Keycloak (OIDC/JWT validation metadata)
+  |
+  +----> Customer / Product / Order REST APIs
+                           |
+                           v
+                         Kafka
+       +-------------------+--------------------+
+       v                   v                    v
+  Inventory            Payment              Shipping
+       |                   |                    |
+       +-------------------+--------------------+
+                           |
+                  Notification / Analytics / Product availability read model
 ```
 
----
-
-# 12. Caching
-
-Technology
-
-Redis
-
-Used For
-
-- Product Cache
-- Frequently Accessed Customer Data
-- Session Data
-- Configuration Cache
-
-Cache should never become the system of record.
+All Spring services register with Discovery. In a later Kubernetes phase, Eureka remains a deliberate learning component rather than an assumed production requirement.
 
 ---
 
-# 13. Resilience
+# 4. Architectural Boundaries
 
-Technology
+The platform uses:
 
-Resilience4j
+- Database per service.
+- Clean Architecture boundaries inside business services.
+- DDD bounded contexts at service boundaries.
+- REST for immediate queries or commands requiring an immediate answer.
+- Kafka domain events for workflow progression and independent side effects.
+- Local transactions, transactional outbox, idempotent consumers, and compensations instead of distributed transactions.
 
-Patterns
-
-- Circuit Breaker
-- Retry
-- Timeout
-- Rate Limiter
-- Bulkhead
-
-Failures should degrade gracefully.
+Business services use domain, application, and adapter boundaries defined in `AGENTS.md`. Domain and application code must not depend on Spring MVC, Kafka, JPA entities, or external HTTP clients.
 
 ---
 
-# 14. Observability
+# 5. Identity and Security Architecture
 
-Metrics
+Keycloak owns account registration, login credentials, and OIDC token issuance.
 
-Micrometer
-
-Tracing
-
-OpenTelemetry
-
-Logging
-
-SLF4J
-
-Logback
-
-Visualization
-
-Grafana
-
-Metrics Storage
-
-Prometheus
-
-Distributed Traces
-
-Tempo
-
-Log Aggregation
-
-Loki
-
-Every request must propagate
-
-- Trace ID
-- Span ID
-
-Every service must expose
-
+```text
+Client -- Authorization Code + PKCE --> Keycloak
+Client -- Bearer JWT --> Gateway --> Resource Services
 ```
 
-/actuator/health
+Gateway and every protected resource service validate JWT issuer, signature, audience, and expiry. Resource services enforce role-based authorization themselves; network location is not an authorization boundary.
 
-/actuator/prometheus
+The minimum roles are:
 
-```
+- `CUSTOMER`
+- `ADMIN`
+- `SERVICE`
 
----
-
-# 15. Configuration Management
-
-Configuration should come from
-
-- application.yml
-- Environment Variables
-- Kubernetes ConfigMaps
-- Kubernetes Secrets
-
-No secrets should exist inside source code.
+Customer Service maps the immutable Keycloak `sub` claim to its own customer-profile ID. It never owns passwords or performs login. Service-to-service calls use client-credentials tokens.
 
 ---
 
-# 16. Deployment Architecture
+# 6. REST Communication
 
-Deployment Flow
+All public APIs are versioned under `/api/v1` and are routed through Gateway.
 
-```
+Use synchronous REST only when the caller needs an immediate response. Initial examples include:
 
-Developer
+- Order validates product existence and obtains the price snapshot from Product.
+- Notification retrieves a minimal notification profile from Customer with a service token when needed to deliver an event-triggered notification.
 
-↓
-
-GitHub
-
-↓
-
-GitHub Actions
-
-↓
-
-Docker Image
-
-↓
-
-Container Registry
-
-↓
-
-Helm Chart
-
-↓
-
-ArgoCD
-
-↓
-
-Kubernetes Cluster
-
-```
-
-Every microservice is deployed independently.
+All synchronous calls use a timeout, circuit breaker, W3C trace propagation, and retries only when the operation is safe or explicitly idempotent.
 
 ---
 
-# 17. Technology Stack
+# 7. Event-Driven Order Saga
 
-| Layer | Technology |
-|---------|------------|
+Order Service coordinates the Saga by consuming outcomes and publishing the next lifecycle fact:
+
+```text
+order.created
+  -> inventory.reserved | inventory.reservation-failed
+  -> order.confirmed
+  -> payment.completed | payment.failed
+  -> order.paid
+  -> shipment.created | shipment.creation-failed
+  -> shipment.delivered
+  -> order.completed
+```
+
+The detailed event catalogue, compensation paths, consumer lists, and acceptance criteria are in `docs/requirements.md`. `docs/events.md` explains the operational semantics and `docs/asyncapi-style-guide.md` defines contract documentation rules.
+
+Kafka guarantees ordering only inside a single topic partition. Order lifecycle payloads therefore carry a monotonic `orderVersion`; stateful consumers persist terminal cancellation/failure state and ignore stale messages.
+
+---
+
+# 8. Data and Caching
+
+Each business service owns its schema, tables, migrations, outbox, and consumer idempotency records.
+
+Redis is a cache, never a system of record. Product Service caches catalogue reads and maintains an availability read model from `inventory.availability-changed`; it does not read Inventory's database or expose raw stock counts as product-owned data.
+
+---
+
+# 9. Observability
+
+Every Spring service exposes health and Prometheus metrics. Keycloak exposes its supported health and metrics endpoints.
+
+The local reference environment contains Prometheus, Grafana, Loki, Tempo, and an OpenTelemetry Collector. REST and Kafka propagate `traceparent`, optional `tracestate`, and `X-Correlation-Id`; event envelopes retain a searchable `traceId`.
+
+Service-specific metric, dashboard, readiness, and alert requirements are defined in `docs/requirements.md`.
+
+---
+
+# 10. Technology Baseline
+
+| Area | Technology |
+|---|---|
 | Language | Java 21 |
-| Framework | Spring Boot 3.5 |
-| Build Tool | Maven |
+| Framework | Spring Boot 4.1.0 |
+| Cloud release train | Spring Cloud 2025.1.2 or later compatible 2025.1.x |
 | Gateway | Spring Cloud Gateway |
-| Discovery | Eureka |
-| REST Client | OpenFeign |
-| Database | PostgreSQL |
-| Cache | Redis |
+| Discovery | Spring Cloud Netflix Eureka |
+| Persistence | PostgreSQL, Spring Data JPA, Hibernate, Flyway, HikariCP |
 | Messaging | Apache Kafka |
-| Security | Spring Security + OAuth2 + JWT |
-| Monitoring | Micrometer |
-| Tracing | OpenTelemetry |
-| Metrics | Prometheus |
-| Dashboard | Grafana |
-| Logs | Loki |
-| Traces | Tempo |
-| Container | Docker |
-| Orchestration | Kubernetes |
-| Package Manager | Helm |
-| GitOps | ArgoCD |
-| CI/CD | GitHub Actions |
+| Cache | Redis |
+| Security | Spring Security, OAuth2 Resource Server, Keycloak |
+| Resilience | Resilience4j |
+| Observability | Micrometer, OpenTelemetry, Prometheus, Grafana, Loki, Tempo, OpenTelemetry Collector |
+| Testing | JUnit 5, Mockito, Testcontainers |
+| Local delivery | Docker Compose, kind or Minikube, local registry, Helm, ArgoCD |
 
 ---
 
-# 18. Design Principles
+# 11. Deployment Model
 
-The following architectural rules apply to every service.
+The mandatory initial environment is local:
 
-- Every service owns its own database.
-- Services communicate through APIs or events only.
-- Never access another service's database.
-- Controllers must remain thin.
-- Business logic belongs in the Service layer.
-- Repository layer accesses only its own database.
-- APIs should be versioned.
-- Every REST endpoint should validate requests.
-- Every API should return standardized error responses.
-- Every service should expose health endpoints.
-- Every service should publish metrics.
-- Every request should contain Trace ID.
-- Prefer asynchronous communication whenever possible.
-- Use synchronous communication only when an immediate response is required.
-- Secrets must never be committed to source control.
-- Configuration should be externalized.
-- Services should remain stateless whenever possible.
+```text
+Docker Compose -> local tests -> local observability stack
+                         |
+                         v
+              kind/Minikube -> Helm -> local ArgoCD
+```
+
+GitHub Actions, external registries, multi-environment promotion, and production SLOs are future extensions. CI should build, test, scan, and publish only when a remote environment is intentionally introduced.
 
 ---
 
-# 19. Future Enhancements
+# 12. Design Rules
 
-The platform is designed to support future capabilities including
-
-- Keycloak Integration
-- API Versioning
-- Event Schema Registry
-- Saga Pattern
-- CQRS
-- Event Sourcing
-- Kubernetes Horizontal Pod Autoscaler
-- Multi-region Deployment
-- Blue-Green Deployment
-- Canary Deployment
-- Service Mesh (Istio)
-- Distributed Rate Limiting
-- Multi-Tenancy
-- AI-powered Analytics
-- AI Recommendation Engine
-
----
-
-# 20. Architecture Goals
-
-This project aims to demonstrate enterprise software engineering practices including
-
-- Clean Architecture
-- SOLID Principles
-- Domain Driven Design
-- Cloud Native Development
-- Distributed Systems
-- Event Driven Architecture
-- High Availability
-- Fault Tolerance
-- Scalability
-- Security
-- Observability
-- Continuous Delivery
-- Production Readiness
+- Never access another service's database or share entity classes.
+- Never use XA/2PC or distributed database transactions.
+- Never put business logic in REST controllers, Kafka listeners, or repositories.
+- Never publish JPA entities as events or API responses.
+- Never log credentials, JWTs, payment data, or secrets.
+- Never treat Kafka topic ordering as cross-topic ordering.
+- Prefer explicit, documented contracts over implied service behavior.

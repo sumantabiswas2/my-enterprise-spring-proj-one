@@ -31,17 +31,18 @@ This repository prioritizes:
 
 Before writing any code, review these documents in order:
 
-1. docs/architecture.md
-2. docs/api-guidelines.md
-3. docs/openapi-style-guide.md
-4. docs/events.md
-5. docs/database.md
-6. docs/security.md
-7. docs/observability.md
-8. docs/deployment.md
-9. docs/asyncapi-style-guide.md
+1. docs/requirements.md
+2. docs/architecture.md
+3. docs/api-guidelines.md
+4. docs/openapi-style-guide.md
+5. docs/events.md
+6. docs/asyncapi-style-guide.md
+7. docs/database.md
+8. docs/security.md
+9. docs/observability.md
+10. docs/deployment.md
 
-If a document conflicts with generated code, update the code unless the user explicitly requests an architectural change.
+`docs/requirements.md` is authoritative for platform behavior. If documents conflict, reconcile the documents before implementing the affected behavior; do not guess. Update code only after the contract is coherent or the user explicitly approves an architectural change.
 
 ---
 
@@ -52,6 +53,8 @@ Java 21
 Spring Boot 4.1.0
 
 Spring Cloud
+
+Spring Cloud 2025.1.2 or a later compatible 2025.1.x service release
 
 Spring Cloud Gateway
 
@@ -120,12 +123,7 @@ Current services
 
 Each service is independently deployable.
 
-Each service owns
-
-- Database
-- Business logic
-- REST API
-- Kafka events
+Business services own their local database, business logic, REST API where required, and domain events. Gateway and Discovery are stateless infrastructure services; Keycloak owns identity data and OIDC endpoints.
 
 Never violate service boundaries.
 
@@ -153,41 +151,42 @@ Never
 
 # Package Structure
 
-Every service should use a consistent package layout.
+Every business service should use Clean Architecture boundaries while retaining familiar Spring adapters.
 
 ```
 com.company.orderservice
 
 config/
 
-controller/
+domain/
+  model/
+  event/
+  repository/
 
-dto/
+application/
+  service/
+  port/in/
+  port/out/
 
-entity/
+adapter/in/rest/
+  controller/
+  dto/
+  validation/
 
-exception/
+adapter/in/kafka/
 
-mapper/
+adapter/out/persistence/
+  entity/
+  repository/
+  mapper/
 
-repository/
+adapter/out/client/
 
 security/
-
-service/
-
-event/
-
-kafka/
-
-client/
-
-validation/
-
-util/
+exception/
 ```
 
-Do not create arbitrary package structures.
+The domain and application layers must not depend on Spring MVC, Kafka, JPA entities, or external client implementations. Infrastructure adapters implement application ports. Do not create arbitrary package structures outside these boundaries.
 
 ---
 
@@ -212,13 +211,13 @@ Never
 
 # Controller Rules
 
-Controllers should
+REST controllers should
 
 - Validate requests
 - Delegate to services
 - Return DTOs
 
-Controllers must NOT
+REST controllers must NOT
 
 - Access repositories
 - Contain business logic
@@ -228,7 +227,7 @@ Controllers must NOT
 
 # Service Rules
 
-Business logic belongs in services.
+Business use cases belong in application services. Domain invariants and state transitions belong in domain models or domain services.
 
 Services may
 
@@ -292,11 +291,13 @@ Every event must include
 
 Consumers must be idempotent.
 
+Event producers must use the transactional outbox pattern. Stateful consumers must handle duplicate and out-of-order delivery; Kafka ordering applies only within one topic partition.
+
 ---
 
 # Database Rules
 
-Each service owns exactly one PostgreSQL database.
+Each business service owns one PostgreSQL database. Gateway and Discovery are stateless; Keycloak owns its identity database.
 
 Use
 
@@ -339,7 +340,7 @@ Use RBAC for authorization.
 
 # Observability Rules
 
-Every service must expose
+Every Spring service must expose
 
 ```
 /actuator/health

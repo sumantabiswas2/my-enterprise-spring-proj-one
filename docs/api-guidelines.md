@@ -1,661 +1,74 @@
-# API Guidelines
+# REST API Guidelines
 
-**Project:** Enterprise Microservice Platform  
-**Version:** 1.0
+## Scope
 
----
+These rules apply to Spring service APIs behind the gateway. Public contracts are versioned under `/api/v1`; document every endpoint in OpenAPI before or with implementation.
 
-# 1. Purpose
+## Resource conventions
 
-This document defines the API standards for all microservices within the Enterprise Microservice Platform.
+- Use plural nouns: `/api/v1/products`, `/api/v1/orders/{orderId}`.
+- Use HTTP semantics: `GET` reads, `POST` creates/commands, `PUT` replaces, `PATCH` partially changes, and `DELETE` removes where the domain permits it.
+- Commands that are not resource replacement may use an explicit action, such as `POST /api/v1/orders/{orderId}/cancel`.
+- Use ISO-8601 UTC timestamps, JSON, and opaque IDs in public contracts.
+- Do not expose JPA entities or another service's internal identifiers unnecessarily.
 
-Following these guidelines ensures:
+## Responses
 
-- Consistent API design
-- Easier client integration
-- Predictable behavior
-- Better maintainability
-- Standardized error handling
-- Improved documentation
-
-All services must follow these standards.
-
----
-
-# 2. API Style
-
-All APIs shall follow REST principles.
-
-Use
-
-- HTTPS
-- JSON
-- UTF-8 encoding
-
-Example
-
-GET /api/v1/products
-
-Response
+Single-resource successes use one wrapper:
 
 ```json
 {
-  "id": 101,
-  "name": "Laptop",
-  "price": 75000
+  "data": { "id": "..." },
+  "timestamp": "2026-07-14T10:15:30Z",
+  "traceId": "..."
 }
 ```
 
----
-
-# 3. API Versioning
-
-Every endpoint must include an API version.
-
-Good
-
-```
-/api/v1/customers
-/api/v1/orders
-/api/v2/products
-```
-
-Bad
-
-```
-/customers
-/orders
-```
-
----
-
-# 4. Resource Naming
-
-Use nouns.
-
-Good
-
-```
-/customers
-/orders
-/products
-/payments
-```
-
-Avoid verbs.
-
-Bad
-
-```
-/getCustomer
-/createOrder
-/deleteProduct
-```
-
----
-
-# 5. HTTP Methods
-
-| Method | Purpose |
-|----------|----------|
-| GET | Retrieve data |
-| POST | Create resource |
-| PUT | Replace resource |
-| PATCH | Partial update |
-| DELETE | Remove resource |
-
-Examples
-
-```
-GET /products
-
-GET /products/101
-
-POST /products
-
-PUT /products/101
-
-PATCH /products/101
-
-DELETE /products/101
-```
-
----
-
-# 6. HTTP Status Codes
-
-Use appropriate HTTP status codes.
-
-| Status | Meaning |
-|----------|----------|
-|200|Success|
-|201|Created|
-|202|Accepted|
-|204|No Content|
-|400|Bad Request|
-|401|Unauthorized|
-|403|Forbidden|
-|404|Not Found|
-|409|Conflict|
-|422|Validation Failed|
-|429|Too Many Requests|
-|500|Internal Server Error|
-|503|Service Unavailable|
-
----
-
-# 7. Standard Response Format
-
-Successful response
+Collection successes use the same wrapper plus pagination:
 
 ```json
 {
-  "data": {
-    "id": 101,
-    "name": "Laptop"
-  },
-  "timestamp": "2026-07-14T10:15:30Z"
+  "data": [],
+  "page": { "number": 0, "size": 20, "totalElements": 0, "totalPages": 0 },
+  "timestamp": "2026-07-14T10:15:30Z",
+  "traceId": "..."
 }
 ```
 
-Collection response
+Use `201` with `Location` for creation, `202` only for genuinely asynchronous acceptance, and `204` only when no response body is returned. Document only status codes that are applicable to the endpoint.
+
+## Errors
+
+All errors use:
 
 ```json
 {
-  "data": [
-    {
-      "id": 1,
-      "name": "Laptop"
-    },
-    {
-      "id": 2,
-      "name": "Phone"
-    }
-  ],
-  "totalElements": 200,
-  "page": 0,
-  "size": 20
+  "code": "VALIDATION_ERROR",
+  "message": "One or more fields are invalid.",
+  "timestamp": "2026-07-14T10:15:30Z",
+  "traceId": "...",
+  "fieldErrors": [{ "field": "quantity", "message": "must be positive" }]
 }
 ```
 
----
+Use `400` for malformed JSON and Bean Validation failures, `401` for authentication failure, `403` for authorization failure, `404` for an inaccessible/nonexistent resource where disclosure is safe, `409` for a domain conflict (including invalid order transition or late cancellation), `429` for rate limiting, and `5xx` for unexpected/dependency failures. Do not use `422` in this API convention. Never return a stack trace.
 
-# 8. Standard Error Response
+## Querying and pagination
 
-Every service should return a common error format.
+Use `page` (zero-based) and `size`; default and maximum size are documented per endpoint. Allow-list `sort` fields and directions. Filters have typed, documented query parameters, for example `category`, `minPrice`, `maxPrice`, and `availabilityStatus`. Product APIs expose availability status, not inventory stock counts.
 
-```json
-{
-  "timestamp": "2026-07-14T10:20:30Z",
-  "status": 404,
-  "error": "Not Found",
-  "message": "Product not found",
-  "path": "/api/v1/products/101",
-  "traceId": "2fd234fdaf2345"
-}
-```
+## Security and context propagation
 
-Never expose
+The gateway and every resource service validate JWTs. Services derive identity from the validated principal, enforce RBAC and record ownership, and never trust user identity headers. The gateway creates or propagates `X-Correlation-Id`; REST calls propagate W3C `traceparent`/`tracestate`. Correlation ID and trace ID are distinct and both appear in structured logs.
 
-- Stack traces
-- SQL exceptions
-- Internal implementation details
+## Idempotency and concurrency
 
----
+For retryable client-created commands such as order placement, support an `Idempotency-Key` scoped to the authenticated caller and endpoint; return the original result for a replay. Use ETags/`If-Match` or a documented version field where concurrent updates can overwrite changes. Event-level idempotency is handled separately with `eventId`.
 
-# 9. Validation
+## Deprecation
 
-Always validate incoming requests.
+Avoid breaking `/v1`. Mark deprecated operations in OpenAPI, add a `Deprecation: true` response header and a documented `Sunset` date for each specific operation, and offer a migration path. Do not publish a generic fixed sunset date.
 
-Example
+## Implementation boundary
 
-```java
-@NotBlank
-private String customerName;
-
-@Email
-private String email;
-
-@NotNull
-private BigDecimal amount;
-
-@Positive
-private Integer quantity;
-```
-
-Return HTTP 400 or 422 when validation fails.
-
----
-
-# 10. Pagination
-
-Large collections must support pagination.
-
-Example
-
-```
-GET /products?page=0&size=20
-```
-
-Response
-
-```json
-{
-  "content": [],
-  "page": 0,
-  "size": 20,
-  "totalPages": 12,
-  "totalElements": 240
-}
-```
-
----
-
-# 11. Sorting
-
-Support sorting.
-
-Example
-
-```
-GET /products?sort=name,asc
-
-GET /products?sort=price,desc
-```
-
----
-
-# 12. Filtering
-
-Support filtering using query parameters.
-
-Examples
-
-```
-GET /products?category=Electronics
-
-GET /orders?status=DELIVERED
-
-GET /customers?city=Bangalore
-```
-
----
-
-# 13. Searching
-
-Example
-
-```
-GET /products/search?keyword=laptop
-```
-
----
-
-# 14. Idempotency
-
-GET
-
-Safe
-
-PUT
-
-Idempotent
-
-DELETE
-
-Idempotent
-
-POST
-
-Not idempotent
-
-For payment APIs, support an Idempotency-Key header.
-
-Example
-
-```
-Idempotency-Key: 9e3abfe2-19d0-4cb0
-```
-
----
-
-# 15. Request Headers
-
-Common headers
-
-```
-Authorization
-
-Content-Type
-
-Accept
-
-Accept-Language
-
-X-Correlation-Id
-
-X-Request-Id
-
-traceparent
-```
-
----
-
-# 16. Authentication
-
-Use
-
-OAuth2
-
-JWT
-
-Example
-
-```
-Authorization
-
-Bearer eyJhbGc...
-```
-
-Gateway validates JWT.
-
-Services trust authenticated requests from Gateway.
-
----
-
-# 17. Correlation IDs
-
-Every request must carry
-
-```
-X-Correlation-Id
-```
-
-If missing, Gateway generates one.
-
-Every log entry must include
-
-- Correlation ID
-- Trace ID
-- Span ID
-
----
-
-# 18. Distributed Tracing
-
-Every request must propagate
-
-```
-traceparent
-```
-
-Generated by OpenTelemetry.
-
-Never remove tracing headers.
-
----
-
-# 19. API Documentation
-
-Every REST endpoint must include
-
-- Summary
-- Description
-- Request example
-- Response example
-- Response codes
-
-OpenAPI annotations should be used.
-
-Example
-
-```java
-@Operation(summary = "Create Product")
-```
-
----
-
-# 20. Naming Conventions
-
-JSON uses camelCase.
-
-Example
-
-```json
-{
-  "customerId": 100,
-  "firstName": "John",
-  "lastName": "Smith"
-}
-```
-
-Do not use
-
-```
-FIRST_NAME
-
-customer_name
-
-FirstName
-```
-
----
-
-# 21. Date and Time
-
-Use ISO-8601.
-
-Example
-
-```
-2026-07-14T10:15:30Z
-```
-
-Never use local server time.
-
-Always store timestamps in UTC.
-
----
-
-# 22. Numeric Values
-
-Money
-
-Use
-
-```
-BigDecimal
-```
-
-Never use
-
-```
-double
-float
-```
-
----
-
-# 23. API Timeouts
-
-Recommended
-
-| Operation | Timeout |
-|------------|----------|
-|GET|2 seconds|
-|POST|5 seconds|
-|External Service|3 seconds|
-
-Use Resilience4j TimeLimiter where appropriate.
-
----
-
-# 24. Retry Policy
-
-Retry only for transient failures.
-
-Good candidates
-
-- HTTP 503
-- HTTP 504
-- Connection timeout
-
-Never retry
-
-- Validation errors
-- Authentication failures
-- Business rule violations
-
----
-
-# 25. Logging
-
-Log
-
-- Request ID
-- Correlation ID
-- Trace ID
-- Execution time
-- Status code
-
-Never log
-
-- Passwords
-- Credit card numbers
-- JWT tokens
-- Secrets
-- OTPs
-
----
-
-# 26. Security Guidelines
-
-Always validate input.
-
-Always use HTTPS.
-
-Sanitize user input.
-
-Prevent SQL Injection.
-
-Prevent XSS.
-
-Never expose internal exceptions.
-
-Never expose stack traces.
-
----
-
-# 27. File Upload
-
-Use
-
-```
-multipart/form-data
-```
-
-Validate
-
-- File size
-- File type
-- Virus scanning (future enhancement)
-
----
-
-# 28. Deprecation Policy
-
-Deprecated APIs must include
-
-```
-Deprecation: true
-Sunset: 2027-01-01
-```
-
-Maintain backward compatibility whenever possible.
-
----
-
-# 29. Health Endpoints
-
-Every service exposes
-
-```
-GET /actuator/health
-
-GET /actuator/info
-
-GET /actuator/prometheus
-```
-
----
-
-# 30. API Design Principles
-
-Every API should be
-
-- Simple
-- Consistent
-- Stateless
-- Versioned
-- Secure
-- Observable
-- Well documented
-- Backward compatible
-- Idempotent where applicable
-- Easy to consume
-
----
-
-# 31. Example REST API
-
-Create Product
-
-```
-POST /api/v1/products
-```
-
-Request
-
-```json
-{
-  "name": "Laptop",
-  "category": "Electronics",
-  "price": 75000,
-  "stock": 100
-}
-```
-
-Response
-
-HTTP 201
-
-```json
-{
-  "data": {
-    "id": 101,
-    "name": "Laptop",
-    "category": "Electronics",
-    "price": 75000,
-    "stock": 100
-  },
-  "timestamp": "2026-07-14T10:15:30Z"
-}
-```
-
----
-
-# 32. AI Coding Rules
-
-When generating REST APIs, AI agents should always:
-
-- Use RESTful resource naming.
-- Prefix all endpoints with `/api/v1`.
-- Validate all request payloads.
-- Return standard response and error formats.
-- Use correct HTTP status codes.
-- Generate OpenAPI annotations.
-- Add Micrometer metrics where appropriate.
-- Propagate Trace IDs and Correlation IDs.
-- Avoid exposing internal implementation details.
-- Keep controllers thin; delegate business logic to the service layer.
-- Write unit and integration tests for all public endpoints.
+Controllers validate DTOs, delegate to application services, and return DTOs/wrappers. They do not query repositories, contain business rules, or publish Kafka messages directly. A centralized exception handler creates the standard error envelope.
