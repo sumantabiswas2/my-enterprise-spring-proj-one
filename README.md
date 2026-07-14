@@ -71,6 +71,38 @@ Order Service coordinates the lifecycle. Every event is delivered at least once,
 
 See the milestone table in [requirements.md](docs/requirements.md).
 
+## Building
+
+The platform is a Maven multi-module build (Java 21, Spring Boot 4.1.0, Spring Cloud 2025.1.x). From the repository root:
+
+```bash
+./mvnw clean package          # build all modules
+./mvnw -pl discovery-server spring-boot:run   # run a single service
+```
+
+## Running M0 Locally (Platform Skeleton)
+
+M0 delivers Discovery, the Gateway, Keycloak identity, and one service (Customer) reachable end to end through the gateway with JWT validation and RBAC.
+
+1. Provide local secrets: `cp .env.example .env` and edit the placeholder values.
+2. Start local infrastructure (Keycloak, Redis, Customer DB):
+   ```bash
+   docker compose --env-file .env -f docker/docker-compose.yml up -d
+   ```
+3. Start the services (each in its own shell):
+   ```bash
+   ./mvnw -pl discovery-server spring-boot:run
+   ./mvnw -pl gateway spring-boot:run
+   ./mvnw -pl auth-service spring-boot:run
+   ./mvnw -pl customer-service spring-boot:run
+   ```
+4. Obtain a token from Keycloak (`web-app` client, `demo-customer` user) and call through the gateway:
+   ```bash
+   curl -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/customers/hello
+   ```
+
+Health and metrics are exposed on every service at `/actuator/health` and `/actuator/prometheus`.
+
 ## Status
 
-This repository currently contains the platform contracts and implementation standards. Service code and local runtime artifacts are added incrementally according to the milestones.
+The repository contains the platform contracts, implementation standards, a Maven multi-module build for all services, and the **M0 platform skeleton** (Discovery, Gateway with JWT/rate-limiting/circuit-breaking, Keycloak realm, and the Customer hello path). Remaining business logic (M1–M6) is added incrementally per the milestone table in [requirements.md](docs/requirements.md).

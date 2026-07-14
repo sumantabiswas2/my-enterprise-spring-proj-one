@@ -38,6 +38,12 @@
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
         </dependency>
 
+        <!-- Per-route circuit breaker / time limiter (reactive) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
         <!-- Service discovery -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

@@ -1,0 +1,80 @@
+# M0 local reference infrastructure.
+# Brings up the identity provider, gateway rate-limit store, and the one business database needed
+# for the M0 "hello service through the gateway" path. Databases/Kafka/observability for the other
+# services are added in later milestones (docs/deployment.md).
+#
+# Usage:
+#   cp ../.env.example ../.env   # then edit secret values
+#   docker compose --env-file ../.env up -d
+#
+# The Spring services themselves run on the host via `mvnw spring-boot:run` during development.
+
+name: enterprise-platform-m0
+
+services:
+  keycloak-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  customer-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: customer_db
+      POSTGRES_USER: customer_db
+      POSTGRES_PASSWORD: ${CUSTOMER_DB_PASSWORD:-customer_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - customer-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U customer_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  keycloak-db-data:
+  customer-db-data:

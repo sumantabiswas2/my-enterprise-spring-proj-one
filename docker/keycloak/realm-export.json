@@ -1,0 +1,65 @@
+{
+  "realm": "enterprise",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      { "name": "CUSTOMER", "description": "End user who browses products and places orders (A1)" },
+      { "name": "ADMIN", "description": "Manages catalog/inventory and reviews dashboards (A3)" },
+      { "name": "SERVICE", "description": "Service account for service-to-service calls (A4, FR-AUTH-05)" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "web-app",
+      "name": "Storefront/demo public client",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:*"],
+      "webOrigins": ["*"],
+      "defaultClientScopes": ["web-origins", "roles", "profile", "email"]
+    },
+    {
+      "clientId": "gateway",
+      "name": "API gateway (confidential, service account)",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "REPLACE_ME_IN_LOCAL_ENV"
+    }
+  ],
+  "users": [
+    {
+      "username": "demo-customer",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo-customer@example.com",
+      "firstName": "Demo",
+      "lastName": "Customer",
+      "credentials": [
+        { "type": "password", "value": "REPLACE_ME_IN_LOCAL_ENV", "temporary": false }
+      ],
+      "realmRoles": ["CUSTOMER"]
+    },
+    {
+      "username": "demo-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo-admin@example.com",
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "credentials": [
+        { "type": "password", "value": "REPLACE_ME_IN_LOCAL_ENV", "temporary": false }
+      ],
+      "realmRoles": ["ADMIN", "CUSTOMER"]
+    }
+  ]
+}
